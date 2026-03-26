@@ -1,0 +1,12 @@
+services:
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:latest
+    environment:
+      # Forward APM traces to LaunchDarkly's Datadog-compatible receiver
+      - DD_APM_ENABLED=true
+      - DD_APM_DD_URL=http://datadog.observability.app.launchdarkly.com:8126
+      - DD_DD_URL=http://datadog.observability.app.launchdarkly.com:8126
+      # DD_API_KEY is required by the agent but unused by LaunchDarkly
+      - DD_API_KEY=${DD_API_KEY:-placeholder}
+    ports:
+      - "8126:8126"

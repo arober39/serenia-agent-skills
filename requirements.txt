@@ -1,0 +1,7 @@
+anthropic
+launchdarkly-server-sdk
+ddtrace
+pyairtable
+python-dotenv
+fastapi
+uvicorn[standard]
