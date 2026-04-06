@@ -5,3 +5,4 @@ pyairtable
 python-dotenv
 fastapi
 uvicorn[standard]
+python-json-logger
