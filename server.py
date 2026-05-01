@@ -6,21 +6,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
+# Initialize LaunchDarkly + observability plugin BEFORE importing FastAPI so the
+# OpenTelemetry auto-instrumentation can patch FastAPI at import time.
 from serenia.observability.tracing import init_tracing
 from serenia.observability.logging import init_logging
 from serenia.flags import init_launchdarkly, shutdown as shutdown_ld
-from serenia.agent import process_message, get_skill_registry_info
 
-# Initialize on startup
 tracer = init_tracing()
 logger = init_logging()
 ld_client = init_launchdarkly()
 
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from ldobserve import observe as ld_observe
+from pydantic import BaseModel
+
+from serenia.agent import process_message, get_skill_registry_info
+
 app = FastAPI(title="Serenia Agent API", version="0.1.0")
+
+
+@app.middleware("http")
+async def capture_exceptions_for_ld(request: Request, call_next):
+    """Route uncaught request exceptions into LaunchDarkly's Errors view."""
+    try:
+        return await call_next(request)
+    except Exception as exc:
+        ld_observe.record_exception(exc)
+        raise
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,8 +90,7 @@ def chat(req: ChatRequest):
         "message_id": message_id,
         "routed_to": metadata.get("routed_to"),
         "detected_intent": metadata.get("detected_intent"),
-        "flag_evaluated": metadata.get("flag_evaluated"),
-        "flag_result": metadata.get("flag_result"),
+        "ai_config_evaluated": metadata.get("ai_config_evaluated"),
         "lead_score": metadata.get("lead_score"),
         "latency_ms": metadata.get("latency_ms"),
     })

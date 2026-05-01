@@ -6,10 +6,9 @@ import time
 import anthropic
 
 from serenia.observability.tracing import trace_skill
-from serenia.flags import is_skill_enabled
 from serenia.skills.answer_faq import answer_faq
 from serenia.skills.log_inquiry import log_inquiry
-from serenia.skills.qualify_lead import qualify_lead
+from serenia.skills.qualify_lead import qualify_lead, AI_CONFIG_KEY as QUALIFY_LEAD_AI_CONFIG_KEY
 
 
 SKILL_REGISTRY = {
@@ -26,7 +25,7 @@ SKILL_REGISTRY = {
     "qualify_lead": {
         "description": "Score and qualify an event lead, write results to Airtable",
         "status": "new",
-        "flag_key": "qualify-lead-skill",
+        "ai_config_key": QUALIFY_LEAD_AI_CONFIG_KEY,
         "function": qualify_lead,
     },
     "auto_propose": {
@@ -44,7 +43,7 @@ def get_skill_registry_info() -> list[dict]:
             "name": name,
             "description": info["description"],
             "status": info["status"],
-            "flag_key": info.get("flag_key"),
+            "ai_config_key": info.get("ai_config_key"),
         }
         for name, info in SKILL_REGISTRY.items()
     ]
@@ -123,9 +122,7 @@ def process_message(message: str, context_key: str = "anonymous") -> dict:
         "context_key": context_key,
         "detected_intent": None,
         "routed_to": None,
-        "flag_evaluated": None,
-        "flag_result": None,
-        "fallback": False,
+        "ai_config_evaluated": None,
         "lead_score": None,
         "lead_action": None,
         "latency_ms": None,
@@ -163,18 +160,8 @@ def process_message(message: str, context_key: str = "anonymous") -> dict:
                 "metadata": metadata,
             }
 
-        # Step 3: Check feature flags for flagged skills
-        if skill_info.get("flag_key"):
-            flag_key = skill_info["flag_key"]
-            metadata["flag_evaluated"] = flag_key
-            flag_enabled = is_skill_enabled("qualify_lead", context_key)
-            metadata["flag_result"] = flag_enabled
-
-            if not flag_enabled:
-                metadata["fallback"] = True
-                skill_name = "log_inquiry"
-                skill_info = SKILL_REGISTRY["log_inquiry"]
-                span.set_tag("skill.fallback", True)
+        if skill_info.get("ai_config_key"):
+            metadata["ai_config_evaluated"] = skill_info["ai_config_key"]
 
         metadata["routed_to"] = skill_name
         span.set_tag("skill.routed_to", skill_name)
@@ -192,19 +179,18 @@ def process_message(message: str, context_key: str = "anonymous") -> dict:
             name = intent.get("name") or "Unknown"
             email = intent.get("email") or "not provided"
             result = qualify_lead(name, email, intent.get("question", message))
-            score = result.get("score", "unknown")
-            action = result.get("action", "unknown")
-            reason = result.get("reason", "")
-            metadata["lead_score"] = score
-            metadata["lead_action"] = action
+            lead_score = result["lead_score"]
+            follow_up_action = result["follow_up_action"]
+            metadata["lead_score"] = lead_score
+            metadata["lead_action"] = follow_up_action
 
-            if action == "book_call":
+            if follow_up_action == "book_call":
                 response = (
                     f"Thanks {name}! Based on your event details, I'd love to get you on the calendar "
                     f"for a venue tour so you can see the space in person. "
                     f"I'll send a booking link to {email} shortly."
                 )
-            elif action == "send_nurture":
+            elif follow_up_action == "send_nurture":
                 response = (
                     f"Thanks for reaching out, {name}! I've noted your event details and will send "
                     f"some venue info, photos, and sample packages to {email}."
