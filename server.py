@@ -6,19 +6,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
+# Initialize LaunchDarkly + observability plugin BEFORE importing FastAPI so the
+# OpenTelemetry auto-instrumentation can patch FastAPI at import time.
 from serenia.observability.tracing import init_tracing
+from serenia.observability.logging import init_logging
 from serenia.flags import init_launchdarkly, shutdown as shutdown_ld
-from serenia.agent import process_message, get_skill_registry_info
 
-# Initialize on startup
 tracer = init_tracing()
+logger = init_logging()
 ld_client = init_launchdarkly()
 
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from ldobserve import observe as ld_observe
+from pydantic import BaseModel
+
+from serenia.agent import process_message, get_skill_registry_info
+
 app = FastAPI(title="Serenia Agent API", version="0.1.0")
+
+
+@app.middleware("http")
+async def capture_exceptions_for_ld(request: Request, call_next):
+    """Route uncaught request exceptions into LaunchDarkly's Errors view."""
+    try:
+        return await call_next(request)
+    except Exception as exc:
+        ld_observe.record_exception(exc)
+        raise
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,19 +77,35 @@ def chat(req: ChatRequest):
     context_key = req.context_key or f"web-{uuid.uuid4().hex[:8]}"
     message_id = f"msg-{uuid.uuid4().hex[:8]}"
 
+    logger.info("Chat request received", extra={
+        "message_id": message_id,
+        "context_key": context_key,
+        "input_length": len(req.message),
+    })
+
     result = process_message(req.message, context_key)
+
+    metadata = result["metadata"]
+    logger.info("Chat request completed", extra={
+        "message_id": message_id,
+        "routed_to": metadata.get("routed_to"),
+        "detected_intent": metadata.get("detected_intent"),
+        "ai_config_evaluated": metadata.get("ai_config_evaluated"),
+        "lead_score": metadata.get("lead_score"),
+        "latency_ms": metadata.get("latency_ms"),
+    })
 
     # Add to activity log
     activity_entry = {
         "message_id": message_id,
         "input": req.message[:100],
-        **result["metadata"],
+        **metadata,
     }
     activity_log.append(activity_entry)
 
     return ChatResponse(
         response=result["response"],
-        metadata=result["metadata"],
+        metadata=metadata,
         message_id=message_id,
     )
 

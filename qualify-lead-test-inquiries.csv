@@ -1,0 +1,9 @@
+id,input,expected_label,expected_follow_up_action,expected_urgency,expected_budget_signal,expected_decision_authority
+1,"Hi, I'm Dana Rivera (dana@riveraphotography.com). I'm planning my wedding reception for September 20th, expecting 120 guests. We'd need full catering and decor. Budget around $8k. Can we schedule a tour this week?",Hot,book_call,months,explicit,decision_maker
+2,"Hello — my name is Marcus Chen, marcus@greenleafplants.co. We're doing a corporate offsite for ~40 people on October 14th. Need AV, breakfast, and lunch catering. What's your availability?",Hot,book_call,months,none,decision_maker
+3,"Hi! Thinking about doing a baby shower at your venue sometime this summer. What does that usually run?",Warm,send_nurture,months,none,researcher
+4,"Looking at venues for a corporate holiday party — probably December. What's included in your packages?",Warm,send_nurture,months,implicit,researcher
+5,"Hey, just curious what kinds of events you host?",Cold,deprioritize,unknown,none,researcher
+6,"Do you allow outside caterers? And is there parking for about 50 cars?",Cold,deprioritize,unknown,none,researcher
+7,"I'm planning my wedding reception for July 12th — 100 guests, full catering, weekend tour please. Reachable at alex.morgan@example.com.",Hot,book_call,months,none,decision_maker
+8,"Planning a 50th birthday party, probably 60-80 guests. Can you tell me more about your decor and bar packages?",Warm,send_nurture,unknown,implicit,researcher
