@@ -1,8 +1,11 @@
 anthropic
 launchdarkly-server-sdk
+launchdarkly-server-sdk-ai
+launchdarkly-observability
 ddtrace
 pyairtable
 python-dotenv
 fastapi
 uvicorn[standard]
 python-json-logger
+httpx
