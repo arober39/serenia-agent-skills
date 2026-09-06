@@ -115,6 +115,7 @@ LD_CLIENT_SIDE_ID=...
 DD_API_KEY=...
 DD_SITE=us5.datadoghq.com
 DD_AGENT_HOST=localhost
+DD_TAGS=launchdarkly.project_id:YOUR_CLIENT_SIDE_ID
 AIRTABLE_PAT=pat...
 AIRTABLE_BASE_ID=app...
 ```
@@ -359,14 +360,14 @@ sudo datadog-agent restart
 
 #### Set the LaunchDarkly project ID
 
-Make sure your `.env` includes the `OTEL_RESOURCE_ATTRIBUTES` so LaunchDarkly can route traces to your project:
+Make sure your `.env` includes `DD_TAGS` so LaunchDarkly can route traces to your project:
 
 ```bash
 DD_AGENT_HOST=localhost
-OTEL_RESOURCE_ATTRIBUTES=launchdarkly.project_id=YOUR_CLIENT_SIDE_ID
+DD_TAGS=launchdarkly.project_id:YOUR_CLIENT_SIDE_ID
 ```
 
-Replace `YOUR_CLIENT_SIDE_ID` with the value from **LaunchDarkly > Project Settings > Environments**.
+Replace `YOUR_CLIENT_SIDE_ID` with the value from **LaunchDarkly > Project Settings > Environments**. Note that `DD_TAGS` uses `:` as the key-value separator (not `=`).
 
 #### Restart your app and verify
 
