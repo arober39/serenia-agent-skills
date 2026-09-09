@@ -55,7 +55,7 @@ def detect_intent(message: str) -> dict:
     with trace_skill("intent_detection") as span:
         client = anthropic.Anthropic()
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=300,
             system=(
                 "You are an intent classifier for Serenia, an AI assistant for an event venue space. "

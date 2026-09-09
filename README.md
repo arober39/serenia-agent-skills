@@ -26,8 +26,9 @@ A full-stack AI-powered customer service agent for an event venue business. Feat
 ### 1. Clone the repo
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/arober39/serenia-agent-skills.git
 cd serenia-agent-skills
+git checkout tutorial-datadog-part-one
 ```
 
 ### 2. Configure environment variables
@@ -43,11 +44,10 @@ cp .env.example .env
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API key |
 | `LD_SDK_KEY` | Yes | LaunchDarkly server-side SDK key |
 | `LD_CLIENT_SIDE_ID` | Yes | LaunchDarkly client-side ID |
-| `DD_API_KEY` | No | Datadog API key |
-| `DD_SITE` | No | Datadog site (e.g. `us5.datadoghq.com`) |
-| `DD_AGENT_HOST` | No | Datadog agent host (default: `localhost`) |
-| `DD_LLMOBS_ML_APP` | No | Datadog LLM Observability app name |
-| `OTEL_RESOURCE_ATTRIBUTES` | No | OpenTelemetry resource attributes |
+| `DD_API_KEY` | Yes, for APM | Datadog API key |
+| `DD_SITE` | Yes, for APM | Datadog site (for example `datadoghq.com` or `us5.datadoghq.com`) |
+| `DD_AGENT_HOST` | Yes, for Agent dual-ship | Datadog Agent host. Use `localhost` when the Agent runs on the same machine |
+| `OTEL_RESOURCE_ATTRIBUTES` | Yes, for LaunchDarkly | `launchdarkly.project_id=<your client-side ID>` |
 | `AIRTABLE_PAT` | No | Airtable personal access token |
 | `AIRTABLE_BASE_ID` | No | Airtable base ID |
 

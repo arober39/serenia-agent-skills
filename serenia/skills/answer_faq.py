@@ -23,7 +23,7 @@ def answer_faq(question: str) -> str:
 
         client = anthropic.Anthropic()
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=400,
             system=(
                 "You are Serenia, the AI assistant for an event venue space. "
@@ -43,6 +43,6 @@ def answer_faq(question: str) -> str:
         answer = response.content[0].text
         span.set_tag("skill.input_length", len(question))
         span.set_tag("skill.output_length", len(answer))
-        span.set_tag("skill.model", "claude-sonnet-4-20250514")
+        span.set_tag("skill.model", "claude-sonnet-4-6")
 
         return answer

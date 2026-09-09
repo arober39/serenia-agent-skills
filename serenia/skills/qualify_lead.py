@@ -25,7 +25,7 @@ def qualify_lead(name: str, email: str, message: str, conversation_context: str 
             full_context += f"\nConversation Context:\n{conversation_context}"
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=500,
             system=(
                 "You are a lead qualification assistant for an event venue space. "
@@ -80,7 +80,7 @@ def qualify_lead(name: str, email: str, message: str, conversation_context: str 
 
         span.set_tag("skill.lead_score", result.get("score", "unknown"))
         span.set_tag("skill.lead_action", result.get("action", "unknown"))
-        span.set_tag("skill.model", "claude-sonnet-4-20250514")
+        span.set_tag("skill.model", "claude-sonnet-4-6")
         span.set_tag("skill.input_length", len(full_context))
 
         return result

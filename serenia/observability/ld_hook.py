@@ -1,5 +1,7 @@
 """LaunchDarkly SDK hook that attaches flag evaluation context to Datadog traces."""
 
+import json
+
 from ddtrace import tracer
 from ldclient.hook import Hook, EvaluationSeriesContext
 
@@ -7,8 +9,8 @@ from ldclient.hook import Hook, EvaluationSeriesContext
 class DatadogTracingHook(Hook):
     """Attaches LaunchDarkly flag evaluation metadata to active Datadog spans.
 
-    This is what allows LaunchDarkly to correlate Datadog trace data with
-    specific flag evaluations — powering Guarded Rollouts.
+    Attribute names match LaunchDarkly's Datadog Agent ingestion contract so
+    guarded rollouts can correlate traces with flag evaluations.
     """
 
     @property
@@ -28,13 +30,17 @@ class DatadogTracingHook(Hook):
         context = series_context.context
 
         span.set_tag("feature_flag.key", flag_key)
-        span.set_tag("feature_flag.provider_name", "LaunchDarkly")
+        span.set_tag("feature_flag.provider.name", "LaunchDarkly")
         span.set_tag("feature_flag.result.value", str(detail.value))
 
         if hasattr(detail, "variation_index") and detail.variation_index is not None:
             span.set_tag("feature_flag.result.variant", str(detail.variation_index))
 
         if context:
-            span.set_tag("feature_flag.context.key", context.key)
+            span.set_tag("feature_flag.context.id", context.fully_qualified_key)
+            span.set_tag(
+                "feature_flag.contextKeys",
+                json.dumps({str(context.kind): context.key}),
+            )
 
         return data
