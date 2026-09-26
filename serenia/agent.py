@@ -191,7 +191,12 @@ def process_message(message: str, context_key: str = "anonymous") -> dict:
         elif skill_name == "qualify_lead":
             name = intent.get("name") or "Unknown"
             email = intent.get("email") or "not provided"
-            result = qualify_lead(name, email, intent.get("question", message))
+            result = qualify_lead(
+                name,
+                email,
+                intent.get("question", message),
+                context_key=context_key,
+            )
             score = result.get("score", "unknown")
             action = result.get("action", "unknown")
             reason = result.get("reason", "")
