@@ -85,6 +85,8 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) to use the app.
 
+To generate chat traffic for LaunchDarkly completion metrics, see [Generate traffic](#generate-traffic).
+
 ### Option B: CLI demo
 
 Run a set of demo messages through the agent without the UI:
@@ -127,10 +129,38 @@ To see Completion success increment:
 
 1. Set `LD_SDK_KEY` to the **server-side SDK key** for project `serenia-agent-skills`, and set `ANTHROPIC_API_KEY`. No extra environment variable is required.
 2. Turn **`qualify-lead-skill`** on for the user you chat as. If the flag is off, the agent falls back to `log_inquiry` and no AI Config generation is recorded.
-3. Run the app (`uvicorn server:app --reload --port 8000`, or `python main.py`) and send a qualify-lead message. The CLI demo's Dana Rivera wedding message is one. In the UI, include a name plus concrete booking details (event type, guest count, date).
+3. Run the app (`uvicorn server:app --reload --port 8000`, or `python main.py`) and send a qualify-lead message. `python scripts/seed_traffic.py` sends a batch of them; see [Generate traffic](#generate-traffic). The CLI demo's Dana Rivera wedding message is another single example. In the UI, include a name plus concrete booking details (event type, guest count, date).
 4. Leave the process running for the SDK flush interval (about 5 seconds), or stop it cleanly so `LDClient.close()` flushes. Then open project `serenia-agent-skills` and check **Completion success** on `qualify-lead-config`.
 
 If LaunchDarkly cannot evaluate the config (offline SDK), the skill falls back to the previous prompt and `claude-sonnet-4-6` so local runs still qualify a lead. Those events only reach LaunchDarkly when `LD_SDK_KEY` is a real key for this project. A served variation with `enabled: false` skips the model call and does not emit Completion success.
+
+## Generate traffic
+
+`scripts/seed_traffic.py` posts a mix of messages to `POST /api/chat`: several qualify-lead notes (event type, guest count, and a specific date) plus FAQ and contact-only inquiries. Qualify-lead turns are what record `$ld:ai:generation:success` when `qualify-lead-skill` is on. The script does not read API keys; the running server uses `.env`.
+
+Start the API first (`uvicorn server:app --reload --port 8000`), then:
+
+```bash
+python scripts/seed_traffic.py
+```
+
+```bash
+python scripts/seed_traffic.py \
+  --base-url http://127.0.0.1:8000 \
+  --repeats 3 \
+  --delay 0.5 \
+  --context-key customer-dana
+```
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--base-url` | `http://127.0.0.1:8000` | API origin |
+| `--count` | unset | Send this many requests, cycling the mix. When set, `--repeats` is ignored |
+| `--repeats` | `1` | Send the full mix this many times |
+| `--delay` | `0` | Seconds to wait between requests |
+| `--context-key` | per-message keys | LaunchDarkly user key. Omit it to rotate keys (`customer-dana`, `customer-marcus`, …) so a percentage rollout sees more than one user. Set it to pin every request to one targeted user |
+
+Turn `qualify-lead-skill` on for those user keys. After the script finishes, leave the API process running for about 5 seconds (or stop it cleanly) so the SDK flushes events.
 
 ## Airtable Setup (Optional)
 
@@ -158,6 +188,8 @@ docker compose up -d
 serenia-agent-skills/
 ├── main.py                 # CLI demo entry point
 ├── server.py               # FastAPI server
+├── scripts/
+│   └── seed_traffic.py     # Posts mixed chat traffic to /api/chat
 ├── requirements.txt        # Python dependencies
 ├── Dockerfile
 ├── docker-compose.yml      # Datadog Agent container
