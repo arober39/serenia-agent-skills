@@ -76,6 +76,24 @@ def is_skill_enabled(skill_name: str, context_key: str = "anonymous") -> bool:
     return result
 
 
+
+def track_custom_event(
+    event_key: str,
+    context_key: str = "anonymous",
+    *,
+    data: dict | None = None,
+    metric_value: float | None = None,
+) -> None:
+    """Emit a custom metric event for experiments (accuracy, book_call, etc.)."""
+    try:
+        client = get_client()
+        context = user_context(context_key)
+        client.track(event_key, context, data, metric_value)
+        print(f"[flags] tracked {event_key} for '{context_key}' value={metric_value}")
+    except Exception as exc:
+        print(f"[flags] track failed for {event_key}: {exc}")
+
+
 def shutdown():
     """Shut down the LaunchDarkly client."""
     global _client, _ai_client

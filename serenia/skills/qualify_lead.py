@@ -11,6 +11,12 @@ existing metric ``ld_autogen__ai-completion-success`` (Completion success,
 count, HigherThanBaseline). A provider exception records
 ``$ld:ai:generation:error`` instead and is re-raised.
 
+After each qualification the skill also emits experiment custom events when
+applicable: ``qualify-lead-accuracy`` (numeric 0/1 vs the two-signal rubric),
+``qualify-lead-invalid-output`` (parse fail or missing score/action),
+``qualify-lead-book-call`` (action is book_call), and
+``qualify-lead-airtable-success`` (Leads row created).
+
 Events are not emitted by importing this module. They are emitted when a
 qualify-lead message is actually handled with ``LD_SDK_KEY`` set to this
 project's server-side SDK key. The server SDK flushes custom events on its
@@ -19,13 +25,14 @@ FastAPI shutdown hook).
 """
 
 import json
+import re
 
 import anthropic
 from ldai import AICompletionConfigDefault, LDMessage, ModelConfig, ProviderConfig
 from ldai.providers.types import LDAIMetrics
 from ldai.tracker import TokenUsage
 
-from serenia.flags import get_ai_client, user_context
+from serenia.flags import get_ai_client, track_custom_event, user_context
 from serenia.observability.tracing import trace_skill
 from serenia.skills.airtable_client import get_table
 
@@ -55,6 +62,96 @@ _UNPARSED_RESULT = {
     "reason": "Could not parse LLM output",
     "action": "send_nurture",
 }
+
+_EVENT_TYPE_RE = re.compile(
+    r"\b(wedding|reception|shower|birthday|corporate|party|dinner|gala|"
+    r"anniversary|fundraiser|retreat|conference|meeting)\b",
+    re.I,
+)
+_GUEST_COUNT_RE = re.compile(
+    r"\b(\d{1,4})\s*(guests?|people|attendees|pax)\b|\bfor\s+(\d{1,4})\b",
+    re.I,
+)
+_DATE_RE = re.compile(
+    r"\b(january|february|march|april|may|june|july|august|september|"
+    r"october|november|december|\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?|"
+    r"\d{1,2}(st|nd|rd|th))\b",
+    re.I,
+)
+_BUDGET_RE = re.compile(
+    r"\$\s*\d|\bbudget\b|\bpackage\b|\bspend\b|\bcatering package\b",
+    re.I,
+)
+_TOUR_RE = re.compile(
+    r"\b(tour|walkthrough|walk-through|visit|see the (space|venue)|on[- ]site)\b",
+    re.I,
+)
+
+
+def detect_booking_signals(text: str) -> list[str]:
+    """Return concrete booking-signal labels present in lead text."""
+    haystack = text or ""
+    found: list[str] = []
+    if _DATE_RE.search(haystack):
+        found.append("specific_date")
+    if _GUEST_COUNT_RE.search(haystack):
+        found.append("guest_count")
+    if _EVENT_TYPE_RE.search(haystack):
+        found.append("event_type")
+    if _BUDGET_RE.search(haystack):
+        found.append("budget")
+    if _TOUR_RE.search(haystack):
+        found.append("tour_request")
+    return found
+
+
+def expected_qualification(signals: list[str]) -> tuple[str, str]:
+    """Map signal count onto the two-signal hot rubric."""
+    count = len(signals)
+    if count >= 2:
+        return "hot", "book_call"
+    if count == 1:
+        return "warm", "send_nurture"
+    return "cold", "deprioritize"
+
+
+def _emit_qualification_metrics(
+    *,
+    context_key: str,
+    lead_text: str,
+    result: dict,
+    parsed_ok: bool,
+    airtable_ok: bool | None,
+) -> None:
+    """Emit custom events for the scoring-rubric experiment metrics."""
+    score = str(result.get("score") or "").strip().lower()
+    action = str(result.get("action") or "").strip()
+    missing_fields = not score or not action
+
+    if (not parsed_ok) or missing_fields:
+        track_custom_event("qualify-lead-invalid-output", context_key)
+        return
+
+    signals = detect_booking_signals(lead_text)
+    expected_score, expected_action = expected_qualification(signals)
+    accurate = 1.0 if score == expected_score and action == expected_action else 0.0
+    track_custom_event(
+        "qualify-lead-accuracy",
+        context_key,
+        data={
+            "score": score,
+            "action": action,
+            "expected_score": expected_score,
+            "expected_action": expected_action,
+            "signals": signals,
+        },
+        metric_value=accurate,
+    )
+    if action == "book_call":
+        track_custom_event("qualify-lead-book-call", context_key)
+    if airtable_ok:
+        track_custom_event("qualify-lead-airtable-success", context_key)
+
 
 
 def _fallback_config() -> AICompletionConfigDefault:
@@ -193,7 +290,8 @@ def _lead_context(name: str, email: str, message: str, conversation_context: str
     return full_context
 
 
-def _write_airtable(name: str, email: str, message: str, result: dict, span) -> None:
+def _write_airtable(name: str, email: str, message: str, result: dict, span) -> bool | None:
+    """Write the lead to Airtable. True on success, False on failure, None if skipped."""
     table = get_table("Leads")
     if table:
         try:
@@ -215,11 +313,13 @@ def _write_airtable(name: str, email: str, message: str, result: dict, span) -> 
             record_id = airtable_result["id"]
             span.set_tag("skill.airtable_record_id", record_id)
             print(f"[qualify_lead] Created Airtable record: {record_id}")
+            return True
         except Exception as e:
             print(f"[qualify_lead] Airtable write failed: {e}")
             span.set_tag("skill.airtable_error", str(e)[:200])
-    else:
-        print("[qualify_lead] Airtable not configured — skipping write")
+            return False
+    print("[qualify_lead] Airtable not configured — skipping write")
+    return None
 
 
 def qualify_lead(
@@ -261,6 +361,7 @@ def qualify_lead(
             f"enabled={ai_config.enabled} provider={provider_name or 'none'} model={model_name or 'none'}"
         )
 
+        parsed_ok = True
         if not ai_config.enabled or not model_name:
             print("[qualify_lead] AI config disabled or missing a model — skipping generation")
             result = {
@@ -296,10 +397,19 @@ def qualify_lead(
             response = tracker.track_metrics_of(_anthropic_metrics, call_anthropic)
             try:
                 result = normalize_qualification(_parse_model_json(_response_text(response)))
+                parsed_ok = True
             except (json.JSONDecodeError, IndexError, AttributeError):
                 result = dict(_UNPARSED_RESULT)
+                parsed_ok = False
 
-        _write_airtable(name, email, message, result, span)
+        airtable_ok = _write_airtable(name, email, message, result, span)
+        _emit_qualification_metrics(
+            context_key=context_key,
+            lead_text=full_context,
+            result=result,
+            parsed_ok=parsed_ok,
+            airtable_ok=airtable_ok,
+        )
         span.set_tag("skill.lead_score", result.get("score", "unknown"))
         span.set_tag("skill.lead_action", result.get("action", "unknown"))
         return result
