@@ -3,6 +3,7 @@
 import os
 
 import ldclient
+from ldai import LDAIClient
 from ldclient import Context
 from ldclient.config import Config
 
@@ -10,6 +11,7 @@ from serenia.observability.ld_hook import DatadogTracingHook
 
 
 _client: ldclient.LDClient | None = None
+_ai_client: LDAIClient | None = None
 
 
 def init_launchdarkly():
@@ -45,6 +47,19 @@ def get_client() -> ldclient.LDClient:
     return _client
 
 
+def get_ai_client() -> LDAIClient:
+    """AI / AgentControl client bound to the same server SDK instance."""
+    global _ai_client
+    if _ai_client is None:
+        _ai_client = LDAIClient(get_client())
+    return _ai_client
+
+
+def user_context(context_key: str = "anonymous") -> Context:
+    """User context shared by feature flags and AI Config evaluation."""
+    return Context.builder(context_key).kind("user").name(context_key).build()
+
+
 def is_skill_enabled(skill_name: str, context_key: str = "anonymous") -> bool:
     """Check if a skill is enabled via its LaunchDarkly feature flag.
 
@@ -54,7 +69,7 @@ def is_skill_enabled(skill_name: str, context_key: str = "anonymous") -> bool:
     flag_key = f"{skill_name.replace('_', '-')}-skill"
     client = get_client()
 
-    context = Context.builder(context_key).kind("user").name(context_key).build()
+    context = user_context(context_key)
 
     result = client.variation(flag_key, context, default=False)
     print(f"[flags] {flag_key} for '{context_key}' -> {result}")
@@ -63,7 +78,8 @@ def is_skill_enabled(skill_name: str, context_key: str = "anonymous") -> bool:
 
 def shutdown():
     """Shut down the LaunchDarkly client."""
-    global _client
+    global _client, _ai_client
     if _client:
         _client.close()
         _client = None
+    _ai_client = None

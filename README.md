@@ -107,8 +107,30 @@ python main.py
 |-------|--------|-------------|
 | `answer_faq` | Stable | Answers venue questions using a knowledge base + Claude |
 | `log_inquiry` | Stable | Logs prospect info to Airtable |
-| `qualify_lead` | Flag-gated | Scores leads (hot/warm/cold) and determines follow-up action |
+| `qualify_lead` | Flag-gated | Scores leads (hot/warm/cold) and determines follow-up action. Model and prompt come from AI Config `qualify-lead-config` |
 | `auto_propose` | Locked | Coming soon — generates custom event proposals |
+
+## LaunchDarkly AI Config (`qualify_lead`)
+
+`qualify_lead` does not use a hardcoded system prompt. When the `qualify-lead-skill` flag allows the skill to run, it evaluates AI Config **`qualify-lead-config`** (completion mode) in LaunchDarkly project **`serenia-agent-skills`** with the Python package `launchdarkly-server-sdk-ai`. The served variation supplies the Anthropic model and messages:
+
+| Variation | Model | JSON fields normalized for the app |
+|-----------|--------|-------------------------------------|
+| `qualify-lead-v1-stable` | `claude-sonnet-4-6` | `lead_score` → `score`, `follow_up_action` → `action` |
+| `qualify-lead-v2-precise` | `claude-opus-4-6` | `lead_temperature` → `score`, `follow_up_action` → `action` |
+
+Production targeting (at the time of this wiring) sends about 75% of users to v1 and 25% to v2. The same user context used for `qualify-lead-skill` is used for the AI Config, so both evaluations follow that person.
+
+On a successful Anthropic response, `tracker.track_metrics_of` records `$ld:ai:generation:success`. That is the event for the existing metric **`ld_autogen__ai-completion-success`** (Completion success, count, higher than baseline). A failed model call records `$ld:ai:generation:error` instead. Importing the app, or chatting a message that does not reach `qualify_lead`, does not emit either event.
+
+To see Completion success increment:
+
+1. Set `LD_SDK_KEY` to the **server-side SDK key** for project `serenia-agent-skills`, and set `ANTHROPIC_API_KEY`. No extra environment variable is required.
+2. Turn **`qualify-lead-skill`** on for the user you chat as. If the flag is off, the agent falls back to `log_inquiry` and no AI Config generation is recorded.
+3. Run the app (`uvicorn server:app --reload --port 8000`, or `python main.py`) and send a qualify-lead message. The CLI demo's Dana Rivera wedding message is one. In the UI, include a name plus concrete booking details (event type, guest count, date).
+4. Leave the process running for the SDK flush interval (about 5 seconds), or stop it cleanly so `LDClient.close()` flushes. Then open project `serenia-agent-skills` and check **Completion success** on `qualify-lead-config`.
+
+If LaunchDarkly cannot evaluate the config (offline SDK), the skill falls back to the previous prompt and `claude-sonnet-4-6` so local runs still qualify a lead. Those events only reach LaunchDarkly when `LD_SDK_KEY` is a real key for this project. A served variation with `enabled: false` skips the model call and does not emit Completion success.
 
 ## Airtable Setup (Optional)
 
