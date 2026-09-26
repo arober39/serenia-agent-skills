@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, patch
 from ldai.tracker import LDAIConfigTracker
 from ldclient import Context
 
-from serenia.skills.qualify_lead import normalize_qualification, qualify_lead
+from serenia.skills.qualify_lead import (
+    detect_booking_signals,
+    expected_qualification,
+    normalize_qualification,
+    qualify_lead,
+)
 
 
 def _context():
@@ -112,6 +117,7 @@ class QualifyLeadAiConfigTests(unittest.TestCase):
             patch("serenia.skills.qualify_lead.get_ai_client", return_value=ai_client),
             patch("serenia.skills.qualify_lead.anthropic.Anthropic", anthropic_ctor),
             patch("serenia.skills.qualify_lead.get_table", return_value=None),
+            patch("serenia.skills.qualify_lead.track_custom_event") as track_event,
         ):
             result = qualify_lead(
                 "Dana Rivera",
@@ -139,6 +145,18 @@ class QualifyLeadAiConfigTests(unittest.TestCase):
         self.assertEqual(success_calls[0].args[3], 1)
         self.assertEqual(success_calls[0].args[2]["variationKey"], "qualify-lead-v2-precise")
         self.assertEqual(success_calls[0].args[2]["configKey"], "qualify-lead-config")
+
+        accuracy_calls = [
+            call for call in track_event.call_args_list
+            if call.args and call.args[0] == "qualify-lead-accuracy"
+        ]
+        self.assertEqual(len(accuracy_calls), 1)
+        self.assertEqual(accuracy_calls[0].kwargs.get("metric_value"), 1.0)
+        book_calls = [
+            call for call in track_event.call_args_list
+            if call.args and call.args[0] == "qualify-lead-book-call"
+        ]
+        self.assertEqual(len(book_calls), 1)
 
         self.assertEqual(result["score"], "hot")
         self.assertEqual(result["action"], "book_call")
@@ -173,6 +191,7 @@ class QualifyLeadAiConfigTests(unittest.TestCase):
                 return_value=anthropic_client,
             ),
             patch("serenia.skills.qualify_lead.get_table", return_value=None),
+            patch("serenia.skills.qualify_lead.track_custom_event"),
         ):
             with self.assertRaises(RuntimeError):
                 qualify_lead("Dana", "dana@example.com", "120 guests in June")
@@ -197,12 +216,33 @@ class QualifyLeadAiConfigTests(unittest.TestCase):
             patch("serenia.skills.qualify_lead.get_ai_client", return_value=ai_client),
             patch("serenia.skills.qualify_lead.anthropic.Anthropic") as anthropic_ctor,
             patch("serenia.skills.qualify_lead.get_table", return_value=None),
+            patch("serenia.skills.qualify_lead.track_custom_event") as track_event,
         ):
             result = qualify_lead("Dana", "dana@example.com", "just browsing")
 
         anthropic_ctor.assert_not_called()
         self.assertEqual(result["score"], "warm")
         self.assertEqual(result["action"], "send_nurture")
+
+
+
+class RubricHelpersTests(unittest.TestCase):
+    def test_detects_multiple_signals_and_expects_hot(self):
+        text = (
+            "Wedding reception for 120 guests on September 20. "
+            "Budget around $8k. Can we schedule a tour?"
+        )
+        signals = detect_booking_signals(text)
+        self.assertIn("guest_count", signals)
+        self.assertIn("event_type", signals)
+        self.assertGreaterEqual(len(signals), 2)
+        self.assertEqual(expected_qualification(signals), ("hot", "book_call"))
+
+    def test_zero_signals_expects_cold(self):
+        signals = detect_booking_signals("Just browsing, thanks.")
+        self.assertEqual(signals, [])
+        self.assertEqual(expected_qualification(signals), ("cold", "deprioritize"))
+
 
 
 if __name__ == "__main__":
